@@ -67,7 +67,7 @@ export function MerchantCard({
 
   const handleSnapToVerify = () => {
     router.push({
-      pathname: '/(tabs)/snap',
+      pathname: '/(tabs)',
       params: { merchantId: merchant.id, businessName: merchant.name },
     });
   };

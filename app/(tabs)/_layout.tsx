@@ -31,26 +31,37 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          title: 'Snap',
+          headerTitle: 'SnapTheFee',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'camera' : 'camera-outline'}
+              size={24}
+              color={typeof color === 'string' ? color : '#0F172A'}
+            />
+          ),
+          headerRight: () => (
+            <Link href="/modal" asChild>
+              <Pressable style={{ marginRight: 16 }}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={23}
+                  color="#0F172A"
+                />
+              </Pressable>
+            </Link>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="map"
+        options={{
           title: 'Map',
           headerShown: false,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'map' : 'map-outline'}
               size={22}
-              color={typeof color === 'string' ? color : '#0F172A'}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="snap"
-        options={{
-          title: 'Snap Fee',
-          headerTitle: 'Snap a Receipt',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'camera' : 'camera-outline'}
-              size={24}
               color={typeof color === 'string' ? color : '#0F172A'}
             />
           ),
@@ -67,17 +78,6 @@ export default function TabLayout() {
               size={22}
               color={typeof color === 'string' ? color : '#0F172A'}
             />
-          ),
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable style={{ marginRight: 16 }}>
-                <Ionicons
-                  name="information-circle-outline"
-                  size={23}
-                  color="#0F172A"
-                />
-              </Pressable>
-            </Link>
           ),
         }}
       />
