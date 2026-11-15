@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SnapTheFee</string>
+    <string name="title_activity_main">SnapTheFee</string>
+    <string name="package_name">com.snapthefee.nyc</string>
+    <string name="custom_url_scheme">com.snapthefee.nyc</string>
+</resources>
