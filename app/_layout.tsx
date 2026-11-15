@@ -58,6 +58,13 @@ function RootLayoutNav() {
               title: 'NYC Card Fee Laws',
             }}
           />
+          <Stack.Screen
+            name="privacy"
+            options={{
+              presentation: 'modal',
+              title: 'Privacy Policy & Terms',
+            }}
+          />
         </Stack>
       </ThemeProvider>
     </ReportsProvider>

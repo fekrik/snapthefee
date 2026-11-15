@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link, Tabs } from 'expo-router';
 import React from 'react';
-import { Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 
@@ -14,16 +14,28 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
           borderTopColor: '#E2E8F0',
-          height: 60,
-          paddingBottom: 6,
-          paddingTop: 6,
+          ...Platform.select({
+            web: {
+              height: 62,
+              paddingBottom: 8,
+              paddingTop: 6,
+            },
+            default: {
+              paddingTop: 6,
+            },
+          }),
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
         },
         headerShown: useClientOnlyValue(false, true),
         headerStyle: {
           backgroundColor: '#FFFFFF',
         },
         headerTitleStyle: {
-          fontWeight: '700',
+          fontWeight: '800',
+          fontSize: 17,
           color: '#0F172A',
         },
       }}
@@ -32,7 +44,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Snap',
-          headerTitle: 'SnapTheFee',
+          headerTitle: 'SnapTheFee NYC',
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'camera' : 'camera-outline'}
@@ -42,10 +54,14 @@ export default function TabLayout() {
           ),
           headerRight: () => (
             <Link href="/modal" asChild>
-              <Pressable style={{ marginRight: 16 }}>
+              <Pressable
+                style={{ marginRight: 16 }}
+                hitSlop={10}
+                accessibilityLabel="NYC Card Fee Laws & Privacy"
+              >
                 <Ionicons
                   name="information-circle-outline"
-                  size={23}
+                  size={24}
                   color="#0F172A"
                 />
               </Pressable>
@@ -56,7 +72,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Map',
+          title: 'NYC Map',
           headerShown: false,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons

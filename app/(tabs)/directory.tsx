@@ -129,6 +129,7 @@ export default function DirectoryScreen() {
         data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
           <MerchantCard merchant={item} onConfirm={confirmMerchant} />
         )}
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 16,
     color: '#0F172A',
   },
   segmentWrap: {

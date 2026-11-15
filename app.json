@@ -6,20 +6,29 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "snapthefee",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
+    "primaryColor": "#0F172A",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.snapthefee.nyc",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "SnapTheFee uses the camera to photograph receipts and verify credit card surcharges.",
-        "NSPhotoLibraryUsageDescription": "SnapTheFee accesses your photo library so you can upload receipt photos.",
-        "NSLocationWhenInUseUsageDescription": "SnapTheFee uses your location to show nearby NYC businesses and their card surcharge policies."
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "SnapTheFee uses your camera so you can take a photo of a receipt to verify credit card surcharge percentages and attach evidence to a report.",
+        "NSPhotoLibraryUsageDescription": "SnapTheFee accesses your photo library so you can select and upload an existing receipt photo to verify a surcharge.",
+        "NSLocationWhenInUseUsageDescription": "SnapTheFee uses your location while using the app to center the NYC surcharge map on your current neighborhood."
       }
     },
     "android": {
       "package": "com.snapthefee.nyc",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F172A",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -27,6 +36,11 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
+      "name": "SnapTheFee NYC",
+      "shortName": "SnapTheFee",
+      "description": "Verify and report illegal 4%+ credit card surcharges in New York City.",
+      "themeColor": "#0F172A",
+      "backgroundColor": "#F1F5F9",
       "bundler": "metro",
       "output": "single",
       "favicon": "./assets/images/favicon.png"
@@ -38,20 +52,20 @@
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#0F172A"
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow SnapTheFee to access your photos to upload receipt evidence.",
-          "cameraPermission": "Allow SnapTheFee to use your camera to snap receipt photos."
+          "photosPermission": "SnapTheFee accesses your photo library so you can select and upload an existing receipt photo to verify a surcharge.",
+          "cameraPermission": "SnapTheFee uses your camera so you can take a photo of a receipt to verify credit card surcharge percentages."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow SnapTheFee to center the map on your NYC neighborhood."
+          "locationWhenInUsePermission": "SnapTheFee uses your location while using the app to center the NYC surcharge map on your current neighborhood."
         }
       ]
     ],

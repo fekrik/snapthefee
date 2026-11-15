@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Link } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import {
@@ -43,34 +44,47 @@ export default function ModalScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      <StatusBar style={Platform.OS === 'ios' ? 'light' : 'auto'} />
-      <Text style={styles.heading}>Why 4% Card Fees Are Illegal in NYC</Text>
-      <Text style={styles.intro}>
-        SnapTheFee uses dated receipt photos to verify surcharge math and help
-        New Yorkers hold businesses accountable.
-      </Text>
+      <View style={styles.inner}>
+        <StatusBar style={Platform.OS === 'ios' ? 'light' : 'auto'} />
+        <Text style={styles.heading}>Why 4% Card Fees Are Illegal in NYC</Text>
+        <Text style={styles.intro}>
+          SnapTheFee uses dated receipt photos to verify surcharge math and help
+          New Yorkers hold businesses accountable.
+        </Text>
 
-      <View style={styles.list}>
-        {RULES.map((rule) => (
-          <View key={rule.title} style={styles.card}>
-            <View style={styles.iconWrap}>
-              <Ionicons name={rule.icon} size={20} color="#EF4444" />
+        <View style={styles.list}>
+          {RULES.map((rule) => (
+            <View key={rule.title} style={styles.card}>
+              <View style={styles.iconWrap}>
+                <Ionicons name={rule.icon} size={20} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={styles.cardTitle}>{rule.title}</Text>
+                <Text style={styles.cardBody}>{rule.body}</Text>
+              </View>
             </View>
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={styles.cardTitle}>{rule.title}</Text>
-              <Text style={styles.cardBody}>{rule.body}</Text>
-            </View>
-          </View>
-        ))}
+          ))}
+        </View>
+
+        <Pressable
+          onPress={() => Linking.openURL(NYC_311_COMPLAINT_URL)}
+          style={styles.ctaBtn}
+        >
+          <Ionicons name="open-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.ctaText}>Open NYC 311 Complaint Portal</Text>
+        </Pressable>
+
+        <Link href="/privacy" asChild>
+          <Pressable style={styles.privacyBtn}>
+            <Ionicons
+              name="document-text-outline"
+              size={16}
+              color="#475569"
+            />
+            <Text style={styles.privacyText}>Privacy Policy & Terms</Text>
+          </Pressable>
+        </Link>
       </View>
-
-      <Pressable
-        onPress={() => Linking.openURL(NYC_311_COMPLAINT_URL)}
-        style={styles.ctaBtn}
-      >
-        <Ionicons name="open-outline" size={18} color="#FFFFFF" />
-        <Text style={styles.ctaText}>Open NYC 311 Complaint Portal</Text>
-      </Pressable>
     </ScrollView>
   );
 }
@@ -82,8 +96,13 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+    paddingBottom: 44,
+  },
+  inner: {
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
     gap: 14,
-    paddingBottom: 40,
   },
   heading: {
     fontSize: 22,
@@ -140,5 +159,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  privacyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  privacyText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
   },
 });

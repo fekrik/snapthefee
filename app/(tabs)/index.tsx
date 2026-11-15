@@ -210,6 +210,7 @@ export default function SnapScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.inner}>
           <View style={styles.heroCard}>
@@ -435,9 +436,7 @@ export default function SnapScreen() {
                       cardType === type && styles.segmentTextActive,
                     ]}
                   >
-                    {type === 'credit'
-                      ? 'Credit / Tap (Visa, MC, Amex, Discover)'
-                      : 'Debit Card'}
+                    {type === 'credit' ? 'Credit / Tap-to-Pay' : 'Debit Card'}
                   </Text>
                 </Pressable>
               ))}
@@ -498,35 +497,22 @@ export default function SnapScreen() {
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
-            <View style={styles.mathRow}>
-              <View style={{ flex: 1 }}>
-                <TextInput
-                  value={address}
-                  onChangeText={async (val) => {
-                    setAddress(val);
-                    setGeoCoords(null);
-                    if (val.trim().length >= 3) {
-                      const matches = await searchNYCAddresses(val);
-                      setSuggestions(matches);
-                    } else {
-                      setSuggestions([]);
-                    }
-                  }}
-                  placeholder="Street Address (auto-completes NYC addresses)"
-                  placeholderTextColor="#94A3B8"
-                  style={styles.input}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <TextInput
-                  value={neighborhood}
-                  onChangeText={setNeighborhood}
-                  placeholder="Neighborhood (e.g. West Village)"
-                  placeholderTextColor="#94A3B8"
-                  style={styles.input}
-                />
-              </View>
-            </View>
+            <TextInput
+              value={address}
+              onChangeText={async (val) => {
+                setAddress(val);
+                setGeoCoords(null);
+                if (val.trim().length >= 3) {
+                  const matches = await searchNYCAddresses(val);
+                  setSuggestions(matches);
+                } else {
+                  setSuggestions([]);
+                }
+              }}
+              placeholder="Street Address (auto-completes NYC addresses)"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+            />
 
             {suggestions.length > 0 && (
               <View style={styles.suggestionsBox}>
@@ -560,6 +546,14 @@ export default function SnapScreen() {
                 ))}
               </View>
             )}
+
+            <TextInput
+              value={neighborhood}
+              onChangeText={setNeighborhood}
+              placeholder="Neighborhood (e.g. West Village)"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+            />
 
             <Text style={styles.label}>Borough</Text>
             <View style={styles.chipsRow}>
@@ -914,8 +908,8 @@ const styles = StyleSheet.create({
     borderColor: '#CBD5E1',
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 14,
+    paddingVertical: 12,
+    fontSize: 16,
     color: '#0F172A',
   },
   chipsRow: {
