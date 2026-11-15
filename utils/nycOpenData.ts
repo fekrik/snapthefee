@@ -140,6 +140,65 @@ export async function searchNYCAddresses(
 ): Promise<NYCGeoSuggestion[]> {
   const q = text.trim();
   if (q.length < 3) return [];
+
+  const googleKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (googleKey) {
+    try {
+      const gRes = await fetch(
+        'https://places.googleapis.com/v1/places:searchText',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': googleKey,
+            'X-Goog-FieldMask':
+              'places.id,places.displayName,places.formattedAddress,places.location',
+          },
+          body: JSON.stringify({
+            textQuery: `${q} New York City, NY`,
+            maxResultCount: 5,
+          }),
+        }
+      );
+      if (gRes.ok) {
+        const gData = (await gRes.json()) as {
+          places?: {
+            id?: string;
+            displayName?: { text?: string };
+            formattedAddress?: string;
+            location?: { latitude?: number; longitude?: number };
+          }[];
+        };
+        const gSuggestions: NYCGeoSuggestion[] = [];
+        for (const p of gData.places || []) {
+          const lat = p.location?.latitude;
+          const lng = p.location?.longitude;
+          const name = p.displayName?.text;
+          const addr = p.formattedAddress || '';
+          if (lat === undefined || lng === undefined || !name) continue;
+          const parts = addr.split(',').map((s) => s.trim());
+          const streetAddress = parts[0] || name;
+          const borough = normalizeBorough(addr);
+          gSuggestions.push({
+            id: p.id || `${lat},${lng}`,
+            label: `${name} • ${streetAddress}`,
+            name,
+            streetAddress,
+            neighborhood: parts[1] || borough,
+            borough,
+            latitude: lat,
+            longitude: lng,
+          });
+        }
+        if (gSuggestions.length > 0) {
+          return gSuggestions;
+        }
+      }
+    } catch {
+      // Fallback to NYC Planning Labs GeoSearch below
+    }
+  }
+
   try {
     const url = `https://geosearch.planninglabs.nyc/v2/autocomplete?text=${encodeURIComponent(q)}`;
     const res = await fetch(url, {

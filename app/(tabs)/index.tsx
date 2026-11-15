@@ -485,7 +485,15 @@ export default function SnapScreen() {
             <Text style={styles.sectionTitle}>3. NYC Business Location</Text>
             <TextInput
               value={businessName}
-              onChangeText={setBusinessName}
+              onChangeText={async (val) => {
+                setBusinessName(val);
+                if (val.trim().length >= 3) {
+                  const matches = await searchNYCAddresses(val);
+                  setSuggestions(matches);
+                } else {
+                  setSuggestions([]);
+                }
+              }}
               placeholder="Business Name (e.g. Joe's Pizza)"
               placeholderTextColor="#94A3B8"
               style={styles.input}
@@ -526,6 +534,12 @@ export default function SnapScreen() {
                   <Pressable
                     key={s.id}
                     onPress={() => {
+                      if (
+                        !businessName.trim() ||
+                        s.name !== s.streetAddress
+                      ) {
+                        setBusinessName(s.name);
+                      }
                       setAddress(s.streetAddress);
                       setNeighborhood(s.neighborhood);
                       setBorough(s.borough);
@@ -540,7 +554,7 @@ export default function SnapScreen() {
                       color="#0F172A"
                     />
                     <Text style={styles.suggestionText} numberOfLines={1}>
-                      {s.label} ({s.neighborhood})
+                      {s.label} ({s.borough})
                     </Text>
                   </Pressable>
                 ))}
