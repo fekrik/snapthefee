@@ -1,16 +1,23 @@
 {
   "expo": {
-    "name": "surcharge",
-    "slug": "surcharge",
+    "name": "SnapTheFee",
+    "slug": "snapthefee",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "surcharge",
+    "scheme": "snapthefee",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.snapthefee.nyc",
+      "infoPlist": {
+        "NSCameraUsageDescription": "SnapTheFee uses the camera to photograph receipts and verify credit card surcharges.",
+        "NSPhotoLibraryUsageDescription": "SnapTheFee accesses your photo library so you can upload receipt photos.",
+        "NSLocationWhenInUseUsageDescription": "SnapTheFee uses your location to show nearby NYC businesses and their card surcharge policies."
+      }
     },
     "android": {
+      "package": "com.snapthefee.nyc",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -21,7 +28,7 @@
     },
     "web": {
       "bundler": "metro",
-      "output": "server",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -32,6 +39,19 @@
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow SnapTheFee to access your photos to upload receipt evidence.",
+          "cameraPermission": "Allow SnapTheFee to use your camera to snap receipt photos."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SnapTheFee to center the map on your NYC neighborhood."
         }
       ]
     ],
