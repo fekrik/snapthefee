@@ -38,13 +38,13 @@ export function detectViolations(params: {
 export function getViolationLabel(code: ViolationCode): string {
   switch (code) {
     case 'EXCEEDS_3_PCT_CAP':
-      return 'Exceeds 3% Cap';
+      return 'Exceeds 3% Card Network / Cost Cap';
     case 'ILLEGAL_LINE_ITEM':
-      return 'Illegal Line-Item Fee (GBL § 518)';
+      return 'Illegal Line-Item Fee (NY GBL § 518)';
     case 'DEBIT_SURCHARGE':
-      return 'Illegal Debit Card Fee';
+      return 'Illegal Debit Card Surcharge';
     case 'FEE_ON_TAX':
-      return 'Fee Charged on Sales Tax';
+      return 'Fee Charged on NYC Sales Tax';
   }
 }
 

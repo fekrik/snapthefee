@@ -33,7 +33,14 @@ export async function fetchLiveNYC311Complaints(): Promise<Merchant[]> {
   try {
     const url =
       'https://data.cityofnewyork.us/resource/hang-hxmp.json?$limit=40&$order=intake_date%20DESC';
-    const res = await fetch(url);
+    const token = process.env.EXPO_PUBLIC_NYC_OPEN_DATA_TOKEN;
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (token) {
+      headers['X-App-Token'] = token;
+    }
+    const res = await fetch(url, { headers });
     if (!res.ok) return [];
     const rows = (await res.json()) as SocrataComplaintRow[];
 

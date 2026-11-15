@@ -21,8 +21,8 @@ const RULES = [
   },
   {
     icon: 'trending-up-outline' as const,
-    title: '4%+ Fees Exceed Legal & Network Caps',
-    body: 'Merchants cannot charge more than their actual processing cost, and Visa caps credit card surcharges at 3.0%. Charging 4% or more is an illegal profit center.',
+    title: '4%+ Fees Violate NY Law & Card Network Rules',
+    body: 'NY GBL § 518 prohibits charging more than the actual processing cost on any card (Visa, Mastercard, Amex, or Discover). Visa caps surcharges at 3%, Mastercard caps at actual cost (max 4%), and Amex/Discover forbid discriminatory surcharges.',
   },
   {
     icon: 'card-outline' as const,

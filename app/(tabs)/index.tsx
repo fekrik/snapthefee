@@ -19,7 +19,6 @@ import {
 
 import { useReports } from '@/context/ReportsContext';
 import { Borough, CardType, Merchant, MerchantCategory } from '@/types/surcharge';
-import { SAMPLE_RECEIPTS, SampleReceipt } from '@/utils/receiptOcr';
 import {
   build311ComplaintText,
   computeSurchargePct,
@@ -60,10 +59,6 @@ export default function SnapScreen() {
   const [neighborhood, setNeighborhood] = useState('');
   const [borough, setBorough] = useState<Borough>('Manhattan');
   const [category, setCategory] = useState<MerchantCategory>('Restaurant');
-  const [sampleCoords, setSampleCoords] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
 
   const [subtotalText, setSubtotalText] = useState('');
   const [feeAmountText, setFeeAmountText] = useState('');
@@ -103,23 +98,6 @@ export default function SnapScreen() {
       }),
     [computedPct, cardType, chargedOnTax]
   );
-
-  const applySampleReceipt = (sample: SampleReceipt) => {
-    setSubmittedMerchant(null);
-    setErrorMsg(null);
-    setReceiptUri(sample.receiptDataUri);
-    setOcrStatus(sample.rawSummary);
-    setBusinessName(sample.businessName);
-    setAddress(sample.address);
-    setNeighborhood(sample.neighborhood);
-    setBorough(sample.borough);
-    setCategory(sample.category);
-    setSubtotalText(sample.subtotal.toFixed(2));
-    setFeeAmountText(sample.surchargeAmount.toFixed(2));
-    setChargedOnTax(sample.chargedOnTax);
-    setSampleCoords({ lat: sample.latitude, lng: sample.longitude });
-    setNotes(sample.rawSummary);
-  };
 
   const pickFromCamera = async () => {
     setErrorMsg(null);
@@ -163,7 +141,7 @@ export default function SnapScreen() {
 
   const handleSubmit = async () => {
     if (!businessName.trim()) {
-      setErrorMsg('Please enter the business name (or tap a sample receipt above).');
+      setErrorMsg('Please enter the business name.');
       return;
     }
     setErrorMsg(null);
@@ -185,8 +163,6 @@ export default function SnapScreen() {
         receiptUri,
         chargedOnTax,
         notes,
-        latitude: sampleCoords?.lat,
-        longitude: sampleCoords?.lng,
       });
 
       if (Platform.OS !== 'web') {
@@ -194,7 +170,6 @@ export default function SnapScreen() {
       }
 
       setSubmittedMerchant(saved);
-      setSampleCoords(null);
     } finally {
       setSubmitting(false);
     }
@@ -232,16 +207,16 @@ export default function SnapScreen() {
             <View style={styles.heroBadge}>
               <Ionicons name="shield-checkmark" size={14} color="#EF4444" />
               <Text style={styles.heroBadgeText}>
-                NY GBL § 518 • 3% VISA CAP ENFORCEMENT
+                NY GBL § 518 • ALL CARDS & TAP-TO-PAY
               </Text>
             </View>
             <Text style={styles.heroTitle}>
               Charged 4%+ to tap or use a card in NYC?
             </Text>
             <Text style={styles.heroSub}>
-              Snap a photo of your receipt to verify the math, pin the business
-              on the public NYC map, and generate an official 311 / DCWP
-              complaint.
+              Under NY law & card network rules (Visa, Mastercard, Amex,
+              Discover), surprise percentage fees and 4%+ surcharges are
+              illegal. Snap your receipt to pin the business and report to 311.
             </Text>
           </View>
 
@@ -328,8 +303,8 @@ export default function SnapScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>1. Snap or Upload Receipt</Text>
             <Text style={styles.sectionSub}>
-              Upload a photo of your receipt—or click a sample NYC receipt below
-              to test the full scanner E2E.
+              A photo of the dated receipt verifies the surcharge math and
+              unlocks NYC 311 / DCWP reporting.
             </Text>
 
             {receiptUri ? (
@@ -372,36 +347,16 @@ export default function SnapScreen() {
 
             {ocrStatus && (
               <View style={styles.ocrBanner}>
-                <Ionicons name="sparkles" size={16} color="#047857" />
+                <Ionicons name="checkmark-circle" size={16} color="#047857" />
                 <Text style={styles.ocrBannerText}>{ocrStatus}</Text>
               </View>
             )}
-
-            <View style={styles.sampleRow}>
-              <Text style={styles.sampleLabel}>
-                Instant E2E Demo (Load a sample NYC receipt):
-              </Text>
-              <View style={styles.chipsRow}>
-                {SAMPLE_RECEIPTS.map((s) => (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => applySampleReceipt(s)}
-                    style={styles.sampleBtn}
-                  >
-                    <Ionicons
-                      name="receipt-outline"
-                      size={14}
-                      color="#B91C1C"
-                    />
-                    <Text style={styles.sampleBtnText}>{s.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>2. Receipt Math & Violation Check</Text>
+            <Text style={styles.sectionTitle}>
+              2. Receipt Math & Violation Check
+            </Text>
             <View style={styles.mathRow}>
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Subtotal ($)</Text>
@@ -471,7 +426,9 @@ export default function SnapScreen() {
                       cardType === type && styles.segmentTextActive,
                     ]}
                   >
-                    {type === 'credit' ? 'Credit / Apple Pay' : 'Debit Card'}
+                    {type === 'credit'
+                      ? 'Credit / Tap (Visa, MC, Amex, Discover)'
+                      : 'Debit Card'}
                   </Text>
                 </Pressable>
               ))}
@@ -879,33 +836,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#065F46',
   },
-  sampleRow: {
-    gap: 8,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  sampleLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  sampleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  sampleBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#B91C1C',
-  },
   mathRow: {
     flexDirection: 'row',
     gap: 10,
@@ -976,7 +906,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   segmentText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#64748B',
   },
