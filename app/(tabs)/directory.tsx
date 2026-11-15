@@ -159,6 +159,9 @@ const styles = StyleSheet.create({
     gap: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+    maxWidth: 680,
+    width: '100%',
+    alignSelf: 'center',
   },
   searchBox: {
     flexDirection: 'row',
@@ -226,6 +229,9 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 12,
+    maxWidth: 680,
+    width: '100%',
+    alignSelf: 'center',
   },
   empty: {
     alignItems: 'center',

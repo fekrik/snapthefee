@@ -27,10 +27,12 @@ const FILTERS: { id: FilterMode; label: string }[] = [
 ];
 
 export default function MapScreen() {
-  const { merchants, confirmMerchant } = useReports();
+  const { merchants, confirmMerchant, syncLive311Data, isSyncing311 } =
+    useReports();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [selected, setSelected] = useState<Merchant | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [focusRegion, setFocusRegion] = useState<{
     latitude: number;
     longitude: number;
@@ -81,6 +83,16 @@ export default function MapScreen() {
     }
   };
 
+  const handleSync311 = async () => {
+    const added = await syncLive311Data();
+    setSyncNotice(
+      added > 0
+        ? `Added ${added} live NYC 311 DCWP records`
+        : 'NYC 311 DCWP records are up to date'
+    );
+    setTimeout(() => setSyncNotice(null), 3500);
+  };
+
   return (
     <View style={styles.container}>
       <NYCMap
@@ -90,72 +102,95 @@ export default function MapScreen() {
         focusRegion={focusRegion}
       />
 
-      <SafeAreaView edges={['top']} style={styles.topOverlay} pointerEvents="box-none">
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search" size={18} color="#64748B" />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search NYC spots or neighborhoods..."
-              placeholderTextColor="#94A3B8"
-              style={styles.searchInput}
-              returnKeyType="search"
-            />
-            {query.length > 0 && (
-              <Pressable onPress={() => setQuery('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={17} color="#94A3B8" />
+      <SafeAreaView
+        edges={['top']}
+        style={styles.topOverlay}
+        pointerEvents="box-none"
+      >
+        <View style={styles.topCentered} pointerEvents="box-none">
+          <View style={styles.searchRow}>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={18} color="#64748B" />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search NYC spots or neighborhoods..."
+                placeholderTextColor="#94A3B8"
+                style={styles.searchInput}
+                returnKeyType="search"
+              />
+              {query.length > 0 && (
+                <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={17} color="#94A3B8" />
+                </Pressable>
+              )}
+            </View>
+
+            <Pressable
+              onPress={handleLocateMe}
+              style={styles.iconBtn}
+              accessibilityLabel="Center on my location"
+            >
+              <Ionicons name="locate" size={20} color="#0F172A" />
+            </Pressable>
+
+            <Link href="/modal" asChild>
+              <Pressable
+                style={styles.iconBtn}
+                accessibilityLabel="NYC surcharge law info"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={21}
+                  color="#0F172A"
+                />
               </Pressable>
-            )}
+            </Link>
           </View>
 
-          <Pressable
-            onPress={handleLocateMe}
-            style={styles.iconBtn}
-            accessibilityLabel="Center on my location"
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
           >
-            <Ionicons name="locate" size={20} color="#0F172A" />
-          </Pressable>
-
-          <Link href="/modal" asChild>
-            <Pressable
-              style={styles.iconBtn}
-              accessibilityLabel="NYC surcharge law info"
-            >
-              <Ionicons
-                name="information-circle-outline"
-                size={21}
-                color="#0F172A"
-              />
-            </Pressable>
-          </Link>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          {FILTERS.map((item) => {
-            const active = filter === item.id;
-            return (
-              <Pressable
-                key={item.id}
-                onPress={() => setFilter(item.id)}
-                style={[styles.filterPill, active && styles.filterPillActive]}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    active && styles.filterTextActive,
-                  ]}
+            {FILTERS.map((item) => {
+              const active = filter === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setFilter(item.id)}
+                  style={[styles.filterPill, active && styles.filterPillActive]}
                 >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                  <Text
+                    style={[
+                      styles.filterText,
+                      active && styles.filterTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+
+            <Pressable
+              onPress={handleSync311}
+              disabled={isSyncing311}
+              style={styles.syncPill}
+            >
+              <Ionicons name="sync" size={14} color="#0F172A" />
+              <Text style={styles.syncPillText}>
+                {isSyncing311 ? 'Syncing 311...' : 'Sync Live NYC 311'}
+              </Text>
+            </Pressable>
+          </ScrollView>
+
+          {syncNotice && (
+            <View style={styles.noticePill}>
+              <Text style={styles.noticeText}>{syncNotice}</Text>
+            </View>
+          )}
+        </View>
       </SafeAreaView>
 
       <SafeAreaView
@@ -163,28 +198,30 @@ export default function MapScreen() {
         style={styles.bottomOverlay}
         pointerEvents="box-none"
       >
-        {activeSelected ? (
-          <MerchantCard
-            merchant={activeSelected}
-            onConfirm={confirmMerchant}
-            onClose={() => setSelected(null)}
-          />
-        ) : (
-          <View style={styles.fabContainer} pointerEvents="box-none">
-            <View style={styles.countPill}>
-              <Text style={styles.countText}>
-                {filteredMerchants.length} NYC spots
-              </Text>
+        <View style={styles.bottomCentered} pointerEvents="box-none">
+          {activeSelected ? (
+            <MerchantCard
+              merchant={activeSelected}
+              onConfirm={confirmMerchant}
+              onClose={() => setSelected(null)}
+            />
+          ) : (
+            <View style={styles.fabContainer} pointerEvents="box-none">
+              <View style={styles.countPill}>
+                <Text style={styles.countText}>
+                  {filteredMerchants.length} NYC spots
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => router.push('/(tabs)')}
+                style={styles.snapFab}
+              >
+                <Ionicons name="camera" size={18} color="#FFFFFF" />
+                <Text style={styles.snapFabText}>Snap a Receipt</Text>
+              </Pressable>
             </View>
-            <Pressable
-              onPress={() => router.push('/(tabs)')}
-              style={styles.snapFab}
-            >
-              <Ionicons name="camera" size={18} color="#FFFFFF" />
-              <Text style={styles.snapFabText}>Snap a Receipt</Text>
-            </Pressable>
-          </View>
-        )}
+          )}
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -201,7 +238,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 14,
-    paddingTop: 8,
+    paddingTop: 10,
+  },
+  topCentered: {
+    maxWidth: 680,
+    width: '100%',
+    alignSelf: 'center',
     gap: 10,
   },
   searchRow: {
@@ -275,13 +317,46 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: '#FFFFFF',
   },
+  syncPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  syncPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  noticePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  noticeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   bottomOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     paddingHorizontal: 14,
-    paddingBottom: 12,
+    paddingBottom: 14,
+  },
+  bottomCentered: {
+    maxWidth: 680,
+    width: '100%',
+    alignSelf: 'center',
   },
   fabContainer: {
     flexDirection: 'row',

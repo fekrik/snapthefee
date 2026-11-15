@@ -3,7 +3,6 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
   Image,
   Linking,
   Platform,
@@ -34,6 +33,9 @@ export function MerchantCard({
   onClose,
 }: MerchantCardProps) {
   const [confirmed, setConfirmed] = useState(false);
+  const [show311Box, setShow311Box] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   const severity = getSeverityColor(merchant.surchargePct);
   const hasReceipt =
     merchant.verificationTier === 'receipt_verified' ||
@@ -48,21 +50,22 @@ export function MerchantCard({
     onConfirm(merchant.id);
   };
 
-  const handleReport311 = () => {
-    const summary = build311ComplaintText(merchant);
-    Alert.alert(
-      'NYC 311 / DCWP Report Ready',
-      `${summary}\n\nReady to open the official NYC 311 Consumer Complaint portal?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Open NYC 311',
-          onPress: () => {
-            Linking.openURL(NYC_311_COMPLAINT_URL);
-          },
-        },
-      ]
-    );
+  const complaintText = build311ComplaintText(merchant);
+
+  const handleCopyComplaint = async () => {
+    try {
+      if (
+        Platform.OS === 'web' &&
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard
+      ) {
+        await navigator.clipboard.writeText(complaintText);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Ignore clipboard error
+    }
   };
 
   const handleSnapToVerify = () => {
@@ -124,7 +127,7 @@ export function MerchantCard({
             {merchant.verificationTier === 'receipt_verified'
               ? `Receipt Verified • ${formatFreshnessLabel(merchant.lastVerifiedDate)}`
               : merchant.verificationTier === 'dcwp_311'
-                ? `311 Record • Needs Receipt`
+                ? `NYC 311 Record • Needs Receipt`
                 : `Unverified Tip • Needs Receipt`}
           </Text>
         </View>
@@ -150,9 +153,37 @@ export function MerchantCard({
         <Image
           source={{ uri: merchant.latestReceiptUri }}
           style={styles.receiptThumb}
-          resizeMode="cover"
+          resizeMode="contain"
         />
       ) : null}
+
+      {show311Box && (
+        <View style={styles.complaintBox}>
+          <Text style={styles.complaintHeader}>
+            Ready-to-File NYC 311 / DCWP Complaint
+          </Text>
+          <Text style={styles.complaintMono}>{complaintText}</Text>
+          <View style={styles.complaintBtnRow}>
+            <Pressable onPress={handleCopyComplaint} style={styles.copyBtn}>
+              <Ionicons
+                name={copied ? 'checkmark' : 'copy-outline'}
+                size={14}
+                color="#0F172A"
+              />
+              <Text style={styles.copyBtnText}>
+                {copied ? 'Copied!' : 'Copy Details'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => Linking.openURL(NYC_311_COMPLAINT_URL)}
+              style={styles.open311Btn}
+            >
+              <Ionicons name="open-outline" size={14} color="#FFFFFF" />
+              <Text style={styles.open311BtnText}>Open NYC 311 Portal</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <View style={styles.actionsRow}>
         <Pressable
@@ -178,9 +209,14 @@ export function MerchantCard({
 
         {merchant.surchargePct > 0 ? (
           hasReceipt ? (
-            <Pressable onPress={handleReport311} style={styles.primaryBtn}>
+            <Pressable
+              onPress={() => setShow311Box((prev) => !prev)}
+              style={styles.primaryBtn}
+            >
               <Ionicons name="megaphone-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.primaryBtnText}>Report to 311</Text>
+              <Text style={styles.primaryBtnText}>
+                {show311Box ? 'Hide 311 Form' : 'Report to 311'}
+              </Text>
             </Pressable>
           ) : (
             <Pressable onPress={handleSnapToVerify} style={styles.amberBtn}>
@@ -295,9 +331,63 @@ const styles = StyleSheet.create({
   },
   receiptThumb: {
     width: '100%',
-    height: 90,
+    height: 150,
     borderRadius: 10,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  complaintBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    gap: 8,
+  },
+  complaintHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  complaintMono: {
+    fontSize: 11,
+    color: '#334155',
+    lineHeight: 16,
+  },
+  complaintBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  copyBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  copyBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  open311Btn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#EF4444',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  open311BtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   actionsRow: {
     flexDirection: 'row',

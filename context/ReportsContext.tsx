@@ -9,9 +9,11 @@ import {
   MerchantCategory,
   SurchargeReport,
 } from '@/types/surcharge';
+import { fetchLiveNYC311Complaints } from '@/utils/nycOpenData';
+import { geocodeNYCAddress } from '@/utils/receiptOcr';
 import { detectViolations } from '@/utils/surchargeRules';
 
-const STORAGE_KEY = 'snapthefee_merchants_v1';
+const STORAGE_KEY = 'snapthefee_merchants_v2';
 
 const BOROUGH_COORDS: Record<Borough, { lat: number; lng: number }> = {
   Manhattan: { lat: 40.7484, lng: -73.9857 },
@@ -44,8 +46,10 @@ interface ReportsContextValue {
   merchants: Merchant[];
   reports: SurchargeReport[];
   isLoading: boolean;
+  isSyncing311: boolean;
   addReport: (input: NewReportInput) => Promise<Merchant>;
   confirmMerchant: (merchantId: string) => Promise<void>;
+  syncLive311Data: () => Promise<number>;
   resetDemoData: () => Promise<void>;
 }
 
@@ -55,6 +59,7 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
   const [merchants, setMerchants] = useState<Merchant[]>(SEED_MERCHANTS);
   const [reports, setReports] = useState<SurchargeReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing311, setIsSyncing311] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -74,7 +79,7 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch {
-        // Fallback to seed data on storage read error
+        // Fallback to seed data
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -92,7 +97,7 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
           JSON.stringify({ merchants: nextMerchants, reports: nextReports })
         );
       } catch {
-        // Ignore storage write errors in MVP
+        // Ignore storage errors
       }
     },
     []
@@ -116,7 +121,20 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
               input.businessName.trim().toLowerCase()
           );
 
-      const jitter = () => (Math.random() - 0.5) * 0.014;
+      let lat = input.latitude;
+      let lng = input.longitude;
+      if ((lat === undefined || lng === undefined) && !existing) {
+        const geo = await geocodeNYCAddress(
+          input.address || input.businessName,
+          input.borough
+        );
+        if (geo) {
+          lat = geo.latitude;
+          lng = geo.longitude;
+        }
+      }
+
+      const jitter = () => (Math.random() - 0.5) * 0.012;
       const fallbackCenter = BOROUGH_COORDS[input.borough];
 
       let updatedMerchant: Merchant;
@@ -142,12 +160,12 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
         updatedMerchant = {
           id: `m-${Date.now()}`,
           name: input.businessName.trim(),
-          address: input.address.trim() || 'NYC Street Address',
+          address: input.address.trim() || `${input.borough}, NY`,
           neighborhood: input.neighborhood.trim() || input.borough,
           borough: input.borough,
           category: input.category,
-          latitude: input.latitude ?? fallbackCenter.lat + jitter(),
-          longitude: input.longitude ?? fallbackCenter.lng + jitter(),
+          latitude: lat ?? fallbackCenter.lat + jitter(),
+          longitude: lng ?? fallbackCenter.lng + jitter(),
           surchargePct: input.surchargePct,
           verificationTier: hasReceipt ? 'receipt_verified' : 'needs_receipt',
           lastVerifiedDate: input.transactionDate,
@@ -196,6 +214,29 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
     [merchants, reports, persist]
   );
 
+  const syncLive311Data = useCallback(async (): Promise<number> => {
+    setIsSyncing311(true);
+    try {
+      const fetched = await fetchLiveNYC311Complaints();
+      if (!fetched.length) return 0;
+
+      const existingNames = new Set(
+        merchants.map((m) => m.name.trim().toLowerCase())
+      );
+      const fresh = fetched.filter(
+        (m) => !existingNames.has(m.name.trim().toLowerCase())
+      );
+      if (!fresh.length) return 0;
+
+      const nextMerchants = [...fresh, ...merchants];
+      setMerchants(nextMerchants);
+      await persist(nextMerchants, reports);
+      return fresh.length;
+    } finally {
+      setIsSyncing311(false);
+    }
+  }, [merchants, reports, persist]);
+
   const resetDemoData = useCallback(async () => {
     setMerchants(SEED_MERCHANTS);
     setReports([]);
@@ -208,8 +249,10 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
         merchants,
         reports,
         isLoading,
+        isSyncing311,
         addReport,
         confirmMerchant,
+        syncLive311Data,
         resetDemoData,
       }}
     >

@@ -4,7 +4,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -19,7 +18,8 @@ import {
 } from 'react-native';
 
 import { useReports } from '@/context/ReportsContext';
-import { Borough, CardType, MerchantCategory } from '@/types/surcharge';
+import { Borough, CardType, Merchant, MerchantCategory } from '@/types/surcharge';
+import { SAMPLE_RECEIPTS, SampleReceipt } from '@/utils/receiptOcr';
 import {
   build311ComplaintText,
   computeSurchargePct,
@@ -54,11 +54,16 @@ export default function SnapScreen() {
   const { addReport } = useReports();
 
   const [receiptUri, setReceiptUri] = useState<string | undefined>(undefined);
+  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState('');
   const [address, setAddress] = useState('');
   const [neighborhood, setNeighborhood] = useState('');
   const [borough, setBorough] = useState<Borough>('Manhattan');
   const [category, setCategory] = useState<MerchantCategory>('Restaurant');
+  const [sampleCoords, setSampleCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
 
   const [subtotalText, setSubtotalText] = useState('');
   const [feeAmountText, setFeeAmountText] = useState('');
@@ -67,6 +72,11 @@ export default function SnapScreen() {
   const [chargedOnTax, setChargedOnTax] = useState(false);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [submittedMerchant, setSubmittedMerchant] = useState<Merchant | null>(
+    null
+  );
+  const [copied311, setCopied311] = useState(false);
 
   useEffect(() => {
     if (params.businessName) {
@@ -94,49 +104,69 @@ export default function SnapScreen() {
     [computedPct, cardType, chargedOnTax]
   );
 
+  const applySampleReceipt = (sample: SampleReceipt) => {
+    setSubmittedMerchant(null);
+    setErrorMsg(null);
+    setReceiptUri(sample.receiptDataUri);
+    setOcrStatus(sample.rawSummary);
+    setBusinessName(sample.businessName);
+    setAddress(sample.address);
+    setNeighborhood(sample.neighborhood);
+    setBorough(sample.borough);
+    setCategory(sample.category);
+    setSubtotalText(sample.subtotal.toFixed(2));
+    setFeeAmountText(sample.surchargeAmount.toFixed(2));
+    setChargedOnTax(sample.chargedOnTax);
+    setSampleCoords({ lat: sample.latitude, lng: sample.longitude });
+    setNotes(sample.rawSummary);
+  };
+
   const pickFromCamera = async () => {
+    setErrorMsg(null);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert(
-        'Camera Permission Needed',
-        'Please allow camera access in Settings to snap receipts.'
-      );
+      setErrorMsg('Please allow camera access to snap receipts.');
       return;
     }
     const res = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
-      quality: 0.75,
+      quality: 0.8,
       allowsEditing: true,
     });
     if (!res.canceled && res.assets[0]) {
       setReceiptUri(res.assets[0].uri);
+      setOcrStatus(
+        'Receipt photo attached — confirm the subtotal & fee amounts below.'
+      );
     }
   };
 
   const pickFromLibrary = async () => {
+    setErrorMsg(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert(
-        'Photo Library Permission Needed',
-        'Please allow photo access to upload a receipt.'
-      );
+      setErrorMsg('Please allow photo access to upload a receipt.');
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.75,
+      quality: 0.8,
       allowsEditing: true,
     });
     if (!res.canceled && res.assets[0]) {
       setReceiptUri(res.assets[0].uri);
+      setOcrStatus(
+        'Receipt photo attached — confirm the subtotal & fee amounts below.'
+      );
     }
   };
 
   const handleSubmit = async () => {
     if (!businessName.trim()) {
-      Alert.alert('Business Name Required', 'Please enter the business name.');
+      setErrorMsg('Please enter the business name (or tap a sample receipt above).');
       return;
     }
+    setErrorMsg(null);
     setSubmitting(true);
     try {
       const today = new Date().toISOString().slice(0, 10);
@@ -155,57 +185,36 @@ export default function SnapScreen() {
         receiptUri,
         chargedOnTax,
         notes,
+        latitude: sampleCoords?.lat,
+        longitude: sampleCoords?.lng,
       });
 
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
 
-      // Reset form
-      setReceiptUri(undefined);
-      setBusinessName('');
-      setAddress('');
-      setNeighborhood('');
-      setSubtotalText('');
-      setFeeAmountText('');
-      setNotes('');
-
-      if (receiptUri && saved.surchargePct > 0) {
-        const summary = build311ComplaintText(saved);
-        Alert.alert(
-          'Verified & Pinned to Map!',
-          `Your receipt for ${saved.name} (${saved.surchargePct.toFixed(1)}%) is now live.\n\nWant to file this receipt with NYC 311 / DCWP?`,
-          [
-            {
-              text: 'View on Map',
-              onPress: () => router.replace('/(tabs)/map'),
-            },
-            {
-              text: 'Report to 311',
-              onPress: () => {
-                Alert.alert('311 Report Summary', summary, [
-                  {
-                    text: 'Open NYC 311 Portal',
-                    onPress: () => Linking.openURL(NYC_311_COMPLAINT_URL),
-                  },
-                  {
-                    text: 'Done',
-                    onPress: () => router.replace('/(tabs)/map'),
-                  },
-                ]);
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert(
-          'Added to Map!',
-          `${saved.name} has been updated on the NYC map.`,
-          [{ text: 'View Map', onPress: () => router.replace('/(tabs)/map') }]
-        );
-      }
+      setSubmittedMerchant(saved);
+      setSampleCoords(null);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCopy311 = async () => {
+    if (!submittedMerchant) return;
+    const text = build311ComplaintText(submittedMerchant);
+    try {
+      if (
+        Platform.OS === 'web' &&
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard
+      ) {
+        await navigator.clipboard.writeText(text);
+      }
+      setCopied311(true);
+      setTimeout(() => setCopied311(false), 2500);
+    } catch {
+      // Ignore clipboard error
     }
   };
 
@@ -218,97 +227,234 @@ export default function SnapScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>1. Receipt Photo (Recommended)</Text>
-          <Text style={styles.sectionSub}>
-            Receipts verify the exact date, fee math, and unlock NYC 311
-            reporting.
-          </Text>
-
-          {receiptUri ? (
-            <View style={styles.previewWrap}>
-              <Image
-                source={{ uri: receiptUri }}
-                style={styles.previewImg}
-                resizeMode="cover"
-              />
-              <Pressable
-                onPress={() => setReceiptUri(undefined)}
-                style={styles.removePhotoBtn}
-              >
-                <Ionicons name="close" size={16} color="#FFFFFF" />
-              </Pressable>
+        <View style={styles.inner}>
+          <View style={styles.heroCard}>
+            <View style={styles.heroBadge}>
+              <Ionicons name="shield-checkmark" size={14} color="#EF4444" />
+              <Text style={styles.heroBadgeText}>
+                NY GBL § 518 • 3% VISA CAP ENFORCEMENT
+              </Text>
             </View>
-          ) : (
-            <View style={styles.photoBtnRow}>
-              <Pressable onPress={pickFromCamera} style={styles.photoBtnPrimary}>
-                <Ionicons name="camera" size={20} color="#FFFFFF" />
-                <Text style={styles.photoBtnPrimaryText}>Take Photo</Text>
-              </Pressable>
-              <Pressable
-                onPress={pickFromLibrary}
-                style={styles.photoBtnSecondary}
-              >
-                <Ionicons name="images-outline" size={20} color="#0F172A" />
-                <Text style={styles.photoBtnSecondaryText}>Upload</Text>
-              </Pressable>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>2. Surcharge Math</Text>
-          <View style={styles.mathRow}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Subtotal ($)</Text>
-              <TextInput
-                value={subtotalText}
-                onChangeText={setSubtotalText}
-                placeholder="40.00"
-                placeholderTextColor="#94A3B8"
-                keyboardType="decimal-pad"
-                style={styles.input}
-              />
-            </View>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Card Fee ($)</Text>
-              <TextInput
-                value={feeAmountText}
-                onChangeText={setFeeAmountText}
-                placeholder="1.60"
-                placeholderTextColor="#94A3B8"
-                keyboardType="decimal-pad"
-                style={styles.input}
-              />
-            </View>
+            <Text style={styles.heroTitle}>
+              Charged 4%+ to tap or use a card in NYC?
+            </Text>
+            <Text style={styles.heroSub}>
+              Snap a photo of your receipt to verify the math, pin the business
+              on the public NYC map, and generate an official 311 / DCWP
+              complaint.
+            </Text>
           </View>
 
-          <Text style={styles.label}>Or select fee percentage:</Text>
-          <View style={styles.chipsRow}>
-            {QUICK_PCTS.map((pct) => {
-              const active =
-                !subtotalText && !feeAmountText && manualPct === pct;
-              return (
+          {submittedMerchant && (
+            <View style={styles.successCard}>
+              <View style={styles.successHeader}>
+                <Ionicons name="checkmark-circle" size={24} color="#047857" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.successTitle}>
+                    Pinned: {submittedMerchant.name} (
+                    {submittedMerchant.surchargePct.toFixed(1)}%)
+                  </Text>
+                  <Text style={styles.successSub}>
+                    {submittedMerchant.address} • {submittedMerchant.borough}
+                  </Text>
+                </View>
+              </View>
+
+              {submittedMerchant.surchargePct > 0 && (
+                <View style={styles.complaintPreview}>
+                  <Text style={styles.complaintLabel}>
+                    Official NYC 311 / DCWP Complaint Packet:
+                  </Text>
+                  <Text style={styles.complaintText}>
+                    {build311ComplaintText(submittedMerchant)}
+                  </Text>
+                  <View style={styles.complaintActions}>
+                    <Pressable
+                      onPress={handleCopy311}
+                      style={styles.copyComplaintBtn}
+                    >
+                      <Ionicons
+                        name={copied311 ? 'checkmark' : 'copy-outline'}
+                        size={15}
+                        color="#0F172A"
+                      />
+                      <Text style={styles.copyComplaintText}>
+                        {copied311 ? 'Copied!' : 'Copy 311 Text'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => Linking.openURL(NYC_311_COMPLAINT_URL)}
+                      style={styles.open311Btn}
+                    >
+                      <Ionicons name="open-outline" size={15} color="#FFFFFF" />
+                      <Text style={styles.open311Text}>
+                        File on NYC 311 Portal
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.successNavRow}>
                 <Pressable
-                  key={pct}
-                  onPress={() => {
-                    setSubtotalText('');
-                    setFeeAmountText('');
-                    setManualPct(pct);
-                  }}
-                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => router.push('/(tabs)/map')}
+                  style={styles.viewMapBtn}
                 >
-                  <Text
-                    style={[styles.chipText, active && styles.chipTextActive]}
-                  >
-                    {pct === 0 ? '0% Fair' : `${pct.toFixed(1)}%`}
+                  <Ionicons name="map" size={16} color="#FFFFFF" />
+                  <Text style={styles.viewMapBtnText}>
+                    View Pin on NYC Map
                   </Text>
                 </Pressable>
-              );
-            })}
+                <Pressable
+                  onPress={() => {
+                    setSubmittedMerchant(null);
+                    setReceiptUri(undefined);
+                    setOcrStatus(null);
+                    setBusinessName('');
+                    setAddress('');
+                    setNeighborhood('');
+                    setSubtotalText('');
+                    setFeeAmountText('');
+                    setNotes('');
+                  }}
+                  style={styles.resetBtn}
+                >
+                  <Text style={styles.resetBtnText}>Snap Another</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>1. Snap or Upload Receipt</Text>
+            <Text style={styles.sectionSub}>
+              Upload a photo of your receipt—or click a sample NYC receipt below
+              to test the full scanner E2E.
+            </Text>
+
+            {receiptUri ? (
+              <View style={styles.previewWrap}>
+                <Image
+                  source={{ uri: receiptUri }}
+                  style={styles.previewImg}
+                  resizeMode="contain"
+                />
+                <Pressable
+                  onPress={() => {
+                    setReceiptUri(undefined);
+                    setOcrStatus(null);
+                  }}
+                  style={styles.removePhotoBtn}
+                >
+                  <Ionicons name="close" size={16} color="#FFFFFF" />
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.photoBtnRow}>
+                <Pressable
+                  onPress={pickFromCamera}
+                  style={styles.photoBtnPrimary}
+                >
+                  <Ionicons name="camera" size={20} color="#FFFFFF" />
+                  <Text style={styles.photoBtnPrimaryText}>Take Photo</Text>
+                </Pressable>
+                <Pressable
+                  onPress={pickFromLibrary}
+                  style={styles.photoBtnSecondary}
+                >
+                  <Ionicons name="images-outline" size={20} color="#0F172A" />
+                  <Text style={styles.photoBtnSecondaryText}>
+                    Upload Receipt
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+
+            {ocrStatus && (
+              <View style={styles.ocrBanner}>
+                <Ionicons name="sparkles" size={16} color="#047857" />
+                <Text style={styles.ocrBannerText}>{ocrStatus}</Text>
+              </View>
+            )}
+
+            <View style={styles.sampleRow}>
+              <Text style={styles.sampleLabel}>
+                Instant E2E Demo (Load a sample NYC receipt):
+              </Text>
+              <View style={styles.chipsRow}>
+                {SAMPLE_RECEIPTS.map((s) => (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => applySampleReceipt(s)}
+                    style={styles.sampleBtn}
+                  >
+                    <Ionicons
+                      name="receipt-outline"
+                      size={14}
+                      color="#B91C1C"
+                    />
+                    <Text style={styles.sampleBtnText}>{s.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           </View>
 
-          <View style={styles.toggleRow}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>2. Receipt Math & Violation Check</Text>
+            <View style={styles.mathRow}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Subtotal ($)</Text>
+                <TextInput
+                  value={subtotalText}
+                  onChangeText={setSubtotalText}
+                  placeholder="65.00"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Card Fee ($)</Text>
+                <TextInput
+                  value={feeAmountText}
+                  onChangeText={setFeeAmountText}
+                  placeholder="2.60"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.label}>Or tap fee percentage:</Text>
+            <View style={styles.chipsRow}>
+              {QUICK_PCTS.map((pct) => {
+                const active =
+                  !subtotalText && !feeAmountText && manualPct === pct;
+                return (
+                  <Pressable
+                    key={pct}
+                    onPress={() => {
+                      setSubtotalText('');
+                      setFeeAmountText('');
+                      setManualPct(pct);
+                    }}
+                    style={[styles.chip, active && styles.chipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        active && styles.chipTextActive,
+                      ]}
+                    >
+                      {pct === 0 ? '0% Fair' : `${pct.toFixed(1)}%`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <View style={styles.segmentWrap}>
               {(['credit', 'debit'] as CardType[]).map((type) => (
                 <Pressable
@@ -330,123 +476,146 @@ export default function SnapScreen() {
                 </Pressable>
               ))}
             </View>
-          </View>
 
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>
-              Fee calculated on top of NYC sales tax?
-            </Text>
-            <Switch value={chargedOnTax} onValueChange={setChargedOnTax} />
-          </View>
-
-          <View style={styles.resultBanner}>
-            <Text style={styles.resultPct}>{computedPct.toFixed(1)}%</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.resultTitle}>
-                {violations.length > 0
-                  ? `${violations.length} Potential Violation${violations.length > 1 ? 's' : ''} Detected`
-                  : 'Compliant / No Surcharge'}
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>
+                Was the fee calculated on top of NYC 8.875% sales tax?
               </Text>
-              {violations.length > 0 && (
-                <Text style={styles.resultSub}>
-                  {violations.map(getViolationLabel).join(' • ')}
+              <Switch value={chargedOnTax} onValueChange={setChargedOnTax} />
+            </View>
+
+            <View
+              style={[
+                styles.resultBanner,
+                violations.length > 0
+                  ? styles.resultBannerViolation
+                  : styles.resultBannerClean,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.resultPct,
+                  { color: violations.length > 0 ? '#B91C1C' : '#047857' },
+                ]}
+              >
+                {computedPct.toFixed(1)}%
+              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.resultTitle}>
+                  {violations.length > 0
+                    ? `${violations.length} Legal / Network Violation${violations.length > 1 ? 's' : ''} Detected`
+                    : 'Compliant / 0% Fair Business'}
                 </Text>
-              )}
+                {violations.length > 0 && (
+                  <Text style={styles.resultSub}>
+                    {violations.map(getViolationLabel).join(' • ')}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>3. Business Info</Text>
-          <TextInput
-            value={businessName}
-            onChangeText={setBusinessName}
-            placeholder="Business Name (e.g. Joe's Coffee)"
-            placeholderTextColor="#94A3B8"
-            style={styles.input}
-          />
-          <TextInput
-            value={address}
-            onChangeText={setAddress}
-            placeholder="Street Address (e.g. 123 MacDougal St)"
-            placeholderTextColor="#94A3B8"
-            style={styles.input}
-          />
-          <TextInput
-            value={neighborhood}
-            onChangeText={setNeighborhood}
-            placeholder="Neighborhood (e.g. Greenwich Village)"
-            placeholderTextColor="#94A3B8"
-            style={styles.input}
-          />
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>3. NYC Business Location</Text>
+            <TextInput
+              value={businessName}
+              onChangeText={setBusinessName}
+              placeholder="Business Name (e.g. Bleecker Street Bistro)"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+            />
+            <View style={styles.mathRow}>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholder="Street Address (e.g. 245 Bleecker St)"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.input}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={neighborhood}
+                  onChangeText={setNeighborhood}
+                  placeholder="Neighborhood (e.g. West Village)"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.input}
+                />
+              </View>
+            </View>
 
-          <Text style={styles.label}>Borough</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipsRow}
-          >
-            {BOROUGHS.map((b) => (
-              <Pressable
-                key={b}
-                onPress={() => setBorough(b)}
-                style={[styles.chip, borough === b && styles.chipActive]}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    borough === b && styles.chipTextActive,
-                  ]}
+            <Text style={styles.label}>Borough</Text>
+            <View style={styles.chipsRow}>
+              {BOROUGHS.map((b) => (
+                <Pressable
+                  key={b}
+                  onPress={() => setBorough(b)}
+                  style={[styles.chip, borough === b && styles.chipActive]}
                 >
-                  {b}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+                  <Text
+                    style={[
+                      styles.chipText,
+                      borough === b && styles.chipTextActive,
+                    ]}
+                  >
+                    {b}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
-          <Text style={styles.label}>Category</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipsRow}
-          >
-            {CATEGORIES.map((c) => (
-              <Pressable
-                key={c}
-                onPress={() => setCategory(c)}
-                style={[styles.chip, category === c && styles.chipActive]}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    category === c && styles.chipTextActive,
-                  ]}
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.chipsRow}>
+              {CATEGORIES.map((c) => (
+                <Pressable
+                  key={c}
+                  onPress={() => setCategory(c)}
+                  style={[styles.chip, category === c && styles.chipActive]}
                 >
-                  {c}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+                  <Text
+                    style={[
+                      styles.chipText,
+                      category === c && styles.chipTextActive,
+                    ]}
+                  >
+                    {c}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Optional note (e.g. 'Printed as Non-Cash Adj on receipt')"
-            placeholderTextColor="#94A3B8"
-            style={styles.input}
-          />
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Optional note (e.g. 'Printed as Non-Cash Adj on receipt')"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+            />
+          </View>
+
+          {errorMsg && (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle" size={18} color="#B91C1C" />
+              <Text style={styles.errorText}>{errorMsg}</Text>
+            </View>
+          )}
+
+          <Pressable
+            onPress={handleSubmit}
+            disabled={submitting}
+            style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
+          >
+            <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.submitBtnText}>
+              {submitting
+                ? 'Geocoding & Saving...'
+                : receiptUri
+                  ? 'Verify Receipt & Pin to NYC Map'
+                  : 'Submit Tip to NYC Map'}
+            </Text>
+          </Pressable>
         </View>
-
-        <Pressable
-          onPress={handleSubmit}
-          disabled={submitting}
-          style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
-        >
-          <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
-          <Text style={styles.submitBtnText}>
-            {receiptUri ? 'Verify & Pin to NYC Map' : 'Submit Tip to NYC Map'}
-          </Text>
-        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -455,20 +624,173 @@ export default function SnapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F1F5F9',
   },
   scroll: {
     padding: 16,
+    paddingBottom: 48,
+  },
+  inner: {
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
     gap: 16,
-    paddingBottom: 40,
+  },
+  heroCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 20,
+    padding: 20,
+    gap: 8,
+  },
+  heroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: 'rgba(239,68,68,0.16)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  heroBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FCA5A5',
+    letterSpacing: 0.5,
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  heroSub: {
+    fontSize: 13,
+    color: '#CBD5E1',
+    lineHeight: 19,
+  },
+  successCard: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+    gap: 12,
+  },
+  successHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  successTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  successSub: {
+    fontSize: 13,
+    color: '#047857',
+  },
+  complaintPreview: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    gap: 8,
+  },
+  complaintLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  complaintText: {
+    fontSize: 12,
+    color: '#334155',
+    lineHeight: 17,
+  },
+  complaintActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  copyComplaintBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  copyComplaintText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  open311Btn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#EF4444',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  open311Text: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  successNavRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  viewMapBtn: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#0F172A',
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  viewMapBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  resetBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+  },
+  resetBtnText: {
+    color: '#065F46',
+    fontSize: 13,
+    fontWeight: '700',
   },
   section: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    padding: 16,
-    gap: 10,
+    padding: 18,
+    gap: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 16,
@@ -483,10 +805,9 @@ const styles = StyleSheet.create({
   photoBtnRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 4,
   },
   photoBtnPrimary: {
-    flex: 2,
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -509,6 +830,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingVertical: 14,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
   },
   photoBtnSecondaryText: {
     color: '#0F172A',
@@ -519,22 +842,69 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderRadius: 14,
     overflow: 'hidden',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 8,
   },
   previewImg: {
     width: '100%',
-    height: 180,
-    backgroundColor: '#F1F5F9',
+    height: 240,
   },
   removePhotoBtn: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 12,
+    right: 12,
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: 'rgba(15,23,42,0.75)',
+    backgroundColor: 'rgba(15,23,42,0.8)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  ocrBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  ocrBannerText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#065F46',
+  },
+  sampleRow: {
+    gap: 8,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  sampleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  sampleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  sampleBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
   },
   mathRow: {
     flexDirection: 'row',
@@ -548,12 +918,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#475569',
-    marginTop: 2,
   },
   input: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 11,
@@ -566,13 +935,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   chipActive: {
     backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
   },
   chipText: {
     fontSize: 13,
@@ -581,9 +953,6 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: '#FFFFFF',
-  },
-  toggleRow: {
-    marginTop: 4,
   },
   segmentWrap: {
     flexDirection: 'row',
@@ -594,7 +963,7 @@ const styles = StyleSheet.create({
   },
   segmentBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 9,
     alignItems: 'center',
   },
@@ -619,7 +988,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    paddingTop: 4,
   },
   switchLabel: {
     flex: 1,
@@ -631,17 +999,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#F8FAFC',
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginTop: 4,
+  },
+  resultBannerViolation: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  resultBannerClean: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
   resultPct: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
-    color: '#0F172A',
   },
   resultTitle: {
     fontSize: 13,
@@ -653,13 +1025,29 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     marginTop: 2,
   },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    padding: 12,
+    borderRadius: 12,
+  },
+  errorText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#B91C1C',
+    flex: 1,
+  },
   submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     backgroundColor: '#EF4444',
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderRadius: 16,
     shadowColor: '#EF4444',
     shadowOffset: { width: 0, height: 6 },
