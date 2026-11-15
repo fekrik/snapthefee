@@ -32,6 +32,7 @@ export async function geocodeNYCAddress(
 
 export interface ParsedReceiptData {
   rawText: string;
+  ocrEngine?: 'apple-vision' | 'google-vision' | 'tesseract';
   businessName?: string;
   address?: string;
   borough?: Borough;
@@ -313,6 +314,82 @@ export function parseReceiptText(rawText: string): ParsedReceiptData {
 }
 
 /**
+ * Preprocesses an image on an HTML canvas (grayscale + contrast boost) to improve Tesseract OCR accuracy on thermal receipts.
+ */
+async function preprocessImageForTesseract(imageSource: string): Promise<string> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return imageSource;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const targetWidth = Math.min(Math.max(img.width, 1200), 2000);
+        const scale = targetWidth / Math.max(img.width, 1);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(imageSource);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imgData.data;
+        // Grayscale + contrast stretch for thermal paper
+        const contrast = 1.45;
+        const factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100));
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          const adj = Math.min(255, Math.max(0, factor * (gray - 128) + 128));
+          d[i] = adj;
+          d[i + 1] = adj;
+          d[i + 2] = adj;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      } catch {
+        resolve(imageSource);
+      }
+    };
+    img.onerror = () => resolve(imageSource);
+    img.src = imageSource;
+  });
+}
+
+/**
+ * Uses our native iOS Capacitor plugin (Apple Vision VNRecognizeTextRequest) when running on iOS.
+ */
+async function runNativeAppleVisionOcr(base64: string): Promise<string> {
+  if (typeof window === 'undefined') return '';
+  const cap = (
+    window as unknown as {
+      Capacitor?: {
+        isNativePlatform?: () => boolean;
+        Plugins?: {
+          ReceiptOcr?: {
+            recognizeText: (opts: { base64: string }) => Promise<{ text?: string }>;
+          };
+        };
+      };
+    }
+  ).Capacitor;
+
+  if (!cap?.isNativePlatform?.() || !cap.Plugins?.ReceiptOcr?.recognizeText) {
+    return '';
+  }
+
+  try {
+    const res = await cap.Plugins.ReceiptOcr.recognizeText({ base64 });
+    return res?.text || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Loads Tesseract.js dynamically on Web / Capacitor WebView so we don't bloat initial bundle size.
  */
 async function runTesseractOcr(imageSource: string): Promise<string> {
@@ -350,12 +427,16 @@ async function runTesseractOcr(imageSource: string): Promise<string> {
     return '';
   }
 
-  const result = await w.Tesseract.recognize(imageSource, 'eng');
+  const processed = await preprocessImageForTesseract(imageSource);
+  const result = await w.Tesseract.recognize(processed, 'eng');
   return result?.data?.text || '';
 }
 
 /**
- * Attempts Google Cloud Vision OCR first (if key supports it), then falls back to local Tesseract.js OCR.
+ * Runs OCR in priority order:
+ * 1. Native iOS Apple Vision (on-device, instant, high-accuracy receipt OCR)
+ * 2. Google Cloud Vision (if enabled on API key)
+ * 3. Preprocessed Tesseract.js (Web fallback)
  * Also enriches extracted business name / address against live NYC Places & GeoSearch.
  */
 export async function analyzeReceiptImage(params: {
@@ -363,9 +444,17 @@ export async function analyzeReceiptImage(params: {
   base64?: string | null;
 }): Promise<ParsedReceiptData> {
   let rawText = '';
+  let ocrEngine: ParsedReceiptData['ocrEngine'] = undefined;
+
+  if (params.base64) {
+    rawText = await runNativeAppleVisionOcr(params.base64);
+    if (rawText.trim()) {
+      ocrEngine = 'apple-vision';
+    }
+  }
 
   const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (apiKey && params.base64) {
+  if (!rawText.trim() && apiKey && params.base64) {
     try {
       const cleanBase64 = params.base64.replace(
         /^data:image\/[a-zA-Z]+;base64,/,
@@ -395,6 +484,7 @@ export async function analyzeReceiptImage(params: {
           data?.responses?.[0]?.textAnnotations?.[0]?.description;
         if (text && typeof text === 'string') {
           rawText = text;
+          ocrEngine = 'google-vision';
         }
       }
     } catch {
@@ -411,30 +501,45 @@ export async function analyzeReceiptImage(params: {
           )}`
         : params.uri;
       rawText = await runTesseractOcr(source);
+      if (rawText.trim()) {
+        ocrEngine = 'tesseract';
+      }
     } catch {
       rawText = '';
     }
   }
 
   const parsed = parseReceiptText(rawText);
+  parsed.ocrEngine = ocrEngine;
 
-  // Auto-lookup the business / address in NYC Places & GeoSearch so we fill exact address, neighborhood, borough, and map pin!
-  const searchQuery = [parsed.businessName, parsed.address]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
+  // Auto-lookup the business / address in NYC Places & GeoSearch so we fill exact address, neighborhood, borough, and map pin.
+  // Prefer searching by street address if we have one, or businessName + address, and verify before trusting a Places business name.
+  const searchQuery = parsed.address
+    ? [parsed.businessName, parsed.address].filter(Boolean).join(' ').trim()
+    : (parsed.businessName || '').trim();
 
-  if (searchQuery.length >= 3) {
+  if (searchQuery.length >= 4) {
     try {
       const matches = await searchNYCAddresses(searchQuery);
       if (matches.length > 0) {
         const best = matches[0];
         parsed.matchedLocation = best;
-        if (!parsed.businessName && best.name !== best.streetAddress) {
+        if (
+          best.name &&
+          best.name !== best.streetAddress &&
+          (!parsed.businessName || parsed.businessName.length < 4)
+        ) {
           parsed.businessName = best.name;
         }
-        if (best.streetAddress) {
+        if (best.streetAddress && !parsed.address) {
           parsed.address = best.streetAddress;
+        } else if (best.streetAddress && parsed.address) {
+          // Use canonical street address if street number matches
+          const ocrNum = parsed.address.match(/^\d+/)?.[0];
+          const bestNum = best.streetAddress.match(/^\d+/)?.[0];
+          if (ocrNum && bestNum && ocrNum === bestNum) {
+            parsed.address = best.streetAddress;
+          }
         }
         if (best.neighborhood) {
           parsed.neighborhood = best.neighborhood;
