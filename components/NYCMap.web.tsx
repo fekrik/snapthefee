@@ -69,9 +69,9 @@ export function NYCMap({
   <div id="map"></div>
   <script>
     const map = L.map('map', { zoomControl: false }).setView([${centerLat}, ${centerLng}], ${zoom});
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap &copy; CARTO'
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
