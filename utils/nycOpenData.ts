@@ -63,14 +63,27 @@ export async function fetchLiveNYC311Complaints(): Promise<Merchant[]> {
     const url = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$where=${where}&$order=created_date%20DESC&$limit=60`;
 
     const token = process.env.EXPO_PUBLIC_NYC_OPEN_DATA_TOKEN;
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-    };
+    let res: Response;
+
     if (token) {
-      headers['X-App-Token'] = token;
+      res = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'X-App-Token': token,
+        },
+      });
+      // If an API Key ID was supplied instead of a Socrata App Token, fallback cleanly
+      if (!res.ok) {
+        res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+        });
+      }
+    } else {
+      res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+      });
     }
 
-    const res = await fetch(url, { headers });
     if (!res.ok) return [];
     const rows = (await res.json()) as NYC311Row[];
 
@@ -91,7 +104,7 @@ export async function fetchLiveNYC311Complaints(): Promise<Merchant[]> {
       const category = mapCategory(row.location_type);
       const descriptor = row.descriptor || row.complaint_type || 'DCWP Complaint';
       const title = row.location_type
-        ? `${row.location_type} (${addr})`
+        ? `${row.location_type} • ${addr}`
         : addr;
 
       results.push({
