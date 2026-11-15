@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-import { SEED_MERCHANTS } from '@/data/seedMerchants';
 import {
   Borough,
   CardType,
@@ -9,11 +8,14 @@ import {
   MerchantCategory,
   SurchargeReport,
 } from '@/types/surcharge';
-import { fetchLiveNYC311Complaints } from '@/utils/nycOpenData';
+import {
+  fetchLiveNYC311Complaints,
+  searchNYCAddresses,
+} from '@/utils/nycOpenData';
 import { geocodeNYCAddress } from '@/utils/receiptOcr';
 import { detectViolations } from '@/utils/surchargeRules';
 
-const STORAGE_KEY = 'snapthefee_merchants_v2';
+const STORAGE_KEY = 'snapthefee_real_v1';
 
 const BOROUGH_COORDS: Record<Borough, { lat: number; lng: number }> = {
   Manhattan: { lat: 40.7484, lng: -73.9857 },
@@ -50,44 +52,15 @@ interface ReportsContextValue {
   addReport: (input: NewReportInput) => Promise<Merchant>;
   confirmMerchant: (merchantId: string) => Promise<void>;
   syncLive311Data: () => Promise<number>;
-  resetDemoData: () => Promise<void>;
 }
 
 const ReportsContext = createContext<ReportsContextValue | undefined>(undefined);
 
 export function ReportsProvider({ children }: { children: React.ReactNode }) {
-  const [merchants, setMerchants] = useState<Merchant[]>(SEED_MERCHANTS);
+  const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [reports, setReports] = useState<SurchargeReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing311, setIsSyncing311] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw && mounted) {
-          const parsed = JSON.parse(raw) as {
-            merchants?: Merchant[];
-            reports?: SurchargeReport[];
-          };
-          if (parsed.merchants?.length) {
-            setMerchants(parsed.merchants);
-          }
-          if (parsed.reports?.length) {
-            setReports(parsed.reports);
-          }
-        }
-      } catch {
-        // Fallback to seed data
-      } finally {
-        if (mounted) setIsLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const persist = useCallback(
     async (nextMerchants: Merchant[], nextReports: SurchargeReport[]) => {
@@ -102,6 +75,55 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
     },
     []
   );
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      let currentMerchants: Merchant[] = [];
+      let currentReports: SurchargeReport[] = [];
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            merchants?: Merchant[];
+            reports?: SurchargeReport[];
+          };
+          if (parsed.merchants?.length) {
+            currentMerchants = parsed.merchants;
+          }
+          if (parsed.reports?.length) {
+            currentReports = parsed.reports;
+          }
+        }
+      } catch {
+        // Ignore storage read error
+      }
+
+      if (mounted && currentMerchants.length > 0) {
+        setMerchants(currentMerchants);
+        setReports(currentReports);
+      }
+
+      // Always pull live NYC 311 DCWP records if empty or on initial load
+      try {
+        const live311 = await fetchLiveNYC311Complaints();
+        if (mounted && live311.length > 0) {
+          const existingIds = new Set(currentMerchants.map((m) => m.id));
+          const merged = [
+            ...currentMerchants,
+            ...live311.filter((m) => !existingIds.has(m.id)),
+          ];
+          setMerchants(merged);
+          await persist(merged, currentReports);
+        }
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [persist]);
 
   const addReport = useCallback(
     async (input: NewReportInput): Promise<Merchant> => {
@@ -123,19 +145,37 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
 
       let lat = input.latitude;
       let lng = input.longitude;
+      let resolvedAddress = input.address.trim();
+      let resolvedNeighborhood = input.neighborhood.trim();
+      let resolvedBorough = input.borough;
+
       if ((lat === undefined || lng === undefined) && !existing) {
-        const geo = await geocodeNYCAddress(
-          input.address || input.businessName,
-          input.borough
+        // 1. Try Official NYC Planning Labs GeoSearch first
+        const nycMatches = await searchNYCAddresses(
+          input.address || input.businessName
         );
-        if (geo) {
-          lat = geo.latitude;
-          lng = geo.longitude;
+        if (nycMatches.length > 0) {
+          lat = nycMatches[0].latitude;
+          lng = nycMatches[0].longitude;
+          if (!resolvedAddress) resolvedAddress = nycMatches[0].streetAddress;
+          if (!resolvedNeighborhood) {
+            resolvedNeighborhood = nycMatches[0].neighborhood;
+          }
+          resolvedBorough = nycMatches[0].borough;
+        } else {
+          // 2. Fallback to OpenStreetMap Nominatim
+          const geo = await geocodeNYCAddress(
+            input.address || input.businessName,
+            input.borough
+          );
+          if (geo) {
+            lat = geo.latitude;
+            lng = geo.longitude;
+          }
         }
       }
 
-      const jitter = () => (Math.random() - 0.5) * 0.012;
-      const fallbackCenter = BOROUGH_COORDS[input.borough];
+      const fallbackCenter = BOROUGH_COORDS[resolvedBorough];
 
       let updatedMerchant: Merchant;
       let nextMerchants: Merchant[];
@@ -160,12 +200,12 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
         updatedMerchant = {
           id: `m-${Date.now()}`,
           name: input.businessName.trim(),
-          address: input.address.trim() || `${input.borough}, NY`,
-          neighborhood: input.neighborhood.trim() || input.borough,
-          borough: input.borough,
+          address: resolvedAddress || `${resolvedBorough}, NY`,
+          neighborhood: resolvedNeighborhood || resolvedBorough,
+          borough: resolvedBorough,
           category: input.category,
-          latitude: lat ?? fallbackCenter.lat + jitter(),
-          longitude: lng ?? fallbackCenter.lng + jitter(),
+          latitude: lat ?? fallbackCenter.lat,
+          longitude: lng ?? fallbackCenter.lng,
           surchargePct: input.surchargePct,
           verificationTier: hasReceipt ? 'receipt_verified' : 'needs_receipt',
           lastVerifiedDate: input.transactionDate,
@@ -220,12 +260,8 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
       const fetched = await fetchLiveNYC311Complaints();
       if (!fetched.length) return 0;
 
-      const existingNames = new Set(
-        merchants.map((m) => m.name.trim().toLowerCase())
-      );
-      const fresh = fetched.filter(
-        (m) => !existingNames.has(m.name.trim().toLowerCase())
-      );
+      const existingIds = new Set(merchants.map((m) => m.id));
+      const fresh = fetched.filter((m) => !existingIds.has(m.id));
       if (!fresh.length) return 0;
 
       const nextMerchants = [...fresh, ...merchants];
@@ -237,12 +273,6 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [merchants, reports, persist]);
 
-  const resetDemoData = useCallback(async () => {
-    setMerchants(SEED_MERCHANTS);
-    setReports([]);
-    await persist(SEED_MERCHANTS, []);
-  }, [persist]);
-
   return (
     <ReportsContext.Provider
       value={{
@@ -253,7 +283,6 @@ export function ReportsProvider({ children }: { children: React.ReactNode }) {
         addReport,
         confirmMerchant,
         syncLive311Data,
-        resetDemoData,
       }}
     >
       {children}

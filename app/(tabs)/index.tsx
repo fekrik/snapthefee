@@ -19,6 +19,7 @@ import {
 
 import { useReports } from '@/context/ReportsContext';
 import { Borough, CardType, Merchant, MerchantCategory } from '@/types/surcharge';
+import { NYCGeoSuggestion, searchNYCAddresses } from '@/utils/nycOpenData';
 import {
   build311ComplaintText,
   computeSurchargePct,
@@ -59,6 +60,10 @@ export default function SnapScreen() {
   const [neighborhood, setNeighborhood] = useState('');
   const [borough, setBorough] = useState<Borough>('Manhattan');
   const [category, setCategory] = useState<MerchantCategory>('Restaurant');
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
+  const [suggestions, setSuggestions] = useState<NYCGeoSuggestion[]>([]);
 
   const [subtotalText, setSubtotalText] = useState('');
   const [feeAmountText, setFeeAmountText] = useState('');
@@ -163,6 +168,8 @@ export default function SnapScreen() {
         receiptUri,
         chargedOnTax,
         notes,
+        latitude: geoCoords?.lat,
+        longitude: geoCoords?.lng,
       });
 
       if (Platform.OS !== 'web') {
@@ -170,6 +177,8 @@ export default function SnapScreen() {
       }
 
       setSubmittedMerchant(saved);
+      setGeoCoords(null);
+      setSuggestions([]);
     } finally {
       setSubmitting(false);
     }
@@ -477,7 +486,7 @@ export default function SnapScreen() {
             <TextInput
               value={businessName}
               onChangeText={setBusinessName}
-              placeholder="Business Name (e.g. Bleecker Street Bistro)"
+              placeholder="Business Name (e.g. Joe's Pizza)"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
@@ -485,8 +494,17 @@ export default function SnapScreen() {
               <View style={{ flex: 1 }}>
                 <TextInput
                   value={address}
-                  onChangeText={setAddress}
-                  placeholder="Street Address (e.g. 245 Bleecker St)"
+                  onChangeText={async (val) => {
+                    setAddress(val);
+                    setGeoCoords(null);
+                    if (val.trim().length >= 3) {
+                      const matches = await searchNYCAddresses(val);
+                      setSuggestions(matches);
+                    } else {
+                      setSuggestions([]);
+                    }
+                  }}
+                  placeholder="Street Address (auto-completes NYC addresses)"
                   placeholderTextColor="#94A3B8"
                   style={styles.input}
                 />
@@ -501,6 +519,33 @@ export default function SnapScreen() {
                 />
               </View>
             </View>
+
+            {suggestions.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                {suggestions.map((s) => (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => {
+                      setAddress(s.streetAddress);
+                      setNeighborhood(s.neighborhood);
+                      setBorough(s.borough);
+                      setGeoCoords({ lat: s.latitude, lng: s.longitude });
+                      setSuggestions([]);
+                    }}
+                    style={styles.suggestionItem}
+                  >
+                    <Ionicons
+                      name="location-outline"
+                      size={15}
+                      color="#0F172A"
+                    />
+                    <Text style={styles.suggestionText} numberOfLines={1}>
+                      {s.label} ({s.neighborhood})
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             <Text style={styles.label}>Borough</Text>
             <View style={styles.chipsRow}>
@@ -954,6 +999,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#B91C1C',
     marginTop: 2,
+  },
+  suggestionsBox: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
   },
   errorBanner: {
     flexDirection: 'row',

@@ -1,24 +1,30 @@
-import { Borough, Merchant } from '@/types/surcharge';
+import { Borough, Merchant, MerchantCategory } from '@/types/surcharge';
 
-interface SocrataComplaintRow {
-  record_id?: string;
-  business_name?: string;
-  business_category?: string;
-  complaint_code?: string;
-  intake_date?: string;
+interface NYC311Row {
+  unique_key?: string;
+  created_date?: string;
+  agency?: string;
+  complaint_type?: string;
+  descriptor?: string;
+  location_type?: string;
+  incident_address?: string;
+  street_name?: string;
+  city?: string;
   borough?: string;
-  street1?: string;
   latitude?: string;
   longitude?: string;
 }
 
-const BOROUGH_FALLBACK: Record<Borough, { lat: number; lng: number }> = {
-  Manhattan: { lat: 40.7505, lng: -73.9934 },
-  Brooklyn: { lat: 40.6928, lng: -73.9903 },
-  Queens: { lat: 40.7498, lng: -73.8801 },
-  Bronx: { lat: 40.8268, lng: -73.9225 },
-  'Staten Island': { lat: 40.6415, lng: -74.0776 },
-};
+export interface NYCGeoSuggestion {
+  id: string;
+  label: string;
+  name: string;
+  streetAddress: string;
+  neighborhood: string;
+  borough: Borough;
+  latitude: number;
+  longitude: number;
+}
 
 function normalizeBorough(raw?: string): Borough {
   const b = (raw || '').toLowerCase();
@@ -29,10 +35,33 @@ function normalizeBorough(raw?: string): Borough {
   return 'Manhattan';
 }
 
+function mapCategory(locationType?: string): MerchantCategory {
+  const t = (locationType || '').toLowerCase();
+  if (t.includes('restaurant') || t.includes('diner')) return 'Restaurant';
+  if (t.includes('bar') || t.includes('club') || t.includes('tavern')) {
+    return 'Bar & Nightlife';
+  }
+  if (
+    t.includes('grocery') ||
+    t.includes('bodega') ||
+    t.includes('supermarket') ||
+    t.includes('deli')
+  ) {
+    return 'Bodega & Grocery';
+  }
+  if (t.includes('bakery') || t.includes('coffee') || t.includes('cafe')) {
+    return 'Cafe & Bakery';
+  }
+  return 'Retail & Services';
+}
+
 export async function fetchLiveNYC311Complaints(): Promise<Merchant[]> {
   try {
-    const url =
-      'https://data.cityofnewyork.us/resource/hang-hxmp.json?$limit=40&$order=intake_date%20DESC';
+    const where = encodeURIComponent(
+      "agency='DCWP' AND latitude IS NOT NULL AND longitude IS NOT NULL"
+    );
+    const url = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$where=${where}&$order=created_date%20DESC&$limit=60`;
+
     const token = process.env.EXPO_PUBLIC_NYC_OPEN_DATA_TOKEN;
     const headers: Record<string, string> = {
       Accept: 'application/json',
@@ -40,50 +69,110 @@ export async function fetchLiveNYC311Complaints(): Promise<Merchant[]> {
     if (token) {
       headers['X-App-Token'] = token;
     }
+
     const res = await fetch(url, { headers });
     if (!res.ok) return [];
-    const rows = (await res.json()) as SocrataComplaintRow[];
+    const rows = (await res.json()) as NYC311Row[];
 
     const results: Merchant[] = [];
-    const seenNames = new Set<string>();
+    const seenAddresses = new Set<string>();
 
     for (const row of rows) {
-      const name = row.business_name?.trim();
-      if (!name || seenNames.has(name.toLowerCase())) continue;
-      seenNames.add(name.toLowerCase());
+      const addr = row.incident_address?.trim();
+      const lat = row.latitude ? parseFloat(row.latitude) : NaN;
+      const lng = row.longitude ? parseFloat(row.longitude) : NaN;
+      if (!addr || Number.isNaN(lat) || Number.isNaN(lng)) continue;
+
+      const key = `${addr.toLowerCase()}-${row.descriptor || ''}`;
+      if (seenAddresses.has(key)) continue;
+      seenAddresses.add(key);
 
       const borough = normalizeBorough(row.borough);
-      const base = BOROUGH_FALLBACK[borough];
-      const lat = row.latitude
-        ? parseFloat(row.latitude)
-        : base.lat + (Math.random() - 0.5) * 0.025;
-      const lng = row.longitude
-        ? parseFloat(row.longitude)
-        : base.lng + (Math.random() - 0.5) * 0.025;
-
-      if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
+      const category = mapCategory(row.location_type);
+      const descriptor = row.descriptor || row.complaint_type || 'DCWP Complaint';
+      const title = row.location_type
+        ? `${row.location_type} (${addr})`
+        : addr;
 
       results.push({
-        id: `311-${row.record_id || results.length}`,
-        name,
-        address: row.street1?.trim() || `${borough}, NY`,
-        neighborhood: borough,
+        id: `311-${row.unique_key || results.length}`,
+        name: title,
+        address: addr,
+        neighborhood: row.city?.trim() || borough,
         borough,
-        category: 'Retail & Services',
+        category,
         latitude: lat,
         longitude: lng,
         surchargePct: 4.0,
         verificationTier: 'dcwp_311',
-        lastVerifiedDate: (row.intake_date || '').slice(0, 10) || '2026-11-01',
+        lastVerifiedDate:
+          (row.created_date || '').slice(0, 10) ||
+          new Date().toISOString().slice(0, 10),
         confirmationsCount: 1,
         violations: ['ILLEGAL_LINE_ITEM'],
-        notes: `Official NYC DCWP Complaint (${row.complaint_code || 'Consumer Pricing'}) — Snap a receipt to verify current fee.`,
+        notes: `Live NYC 311 / DCWP Complaint: ${descriptor} (SR #${row.unique_key || 'N/A'}). Snap a receipt to verify exact fee %.`,
       });
 
-      if (results.length >= 8) break;
+      if (results.length >= 25) break;
     }
 
     return results;
+  } catch {
+    return [];
+  }
+}
+
+export async function searchNYCAddresses(
+  text: string
+): Promise<NYCGeoSuggestion[]> {
+  const q = text.trim();
+  if (q.length < 3) return [];
+  try {
+    const url = `https://geosearch.planninglabs.nyc/v2/autocomplete?text=${encodeURIComponent(q)}`;
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      features?: {
+        geometry?: { coordinates?: [number, number] };
+        properties?: {
+          id?: string;
+          label?: string;
+          name?: string;
+          housenumber?: string;
+          street?: string;
+          neighbourhood?: string;
+          borough?: string;
+        };
+      }[];
+    };
+
+    const suggestions: NYCGeoSuggestion[] = [];
+    for (const feat of data.features || []) {
+      const coords = feat.geometry?.coordinates;
+      const props = feat.properties;
+      if (!coords || !props?.name) continue;
+      const [lng, lat] = coords;
+      const borough = normalizeBorough(props.borough);
+      const streetAddress =
+        props.housenumber && props.street
+          ? `${props.housenumber} ${props.street}`
+          : props.name;
+
+      suggestions.push({
+        id: props.id || `${lat},${lng}`,
+        label: props.label || `${streetAddress}, ${borough}`,
+        name: props.name,
+        streetAddress,
+        neighborhood: props.neighbourhood || borough,
+        borough,
+        latitude: lat,
+        longitude: lng,
+      });
+      if (suggestions.length >= 5) break;
+    }
+    return suggestions;
   } catch {
     return [];
   }
