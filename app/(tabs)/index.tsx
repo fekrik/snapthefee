@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -20,6 +21,7 @@ import {
 import { useReports } from '@/context/ReportsContext';
 import { Borough, CardType, Merchant, MerchantCategory } from '@/types/surcharge';
 import { NYCGeoSuggestion, searchNYCAddresses } from '@/utils/nycOpenData';
+import { analyzeReceiptImage } from '@/utils/receiptOcr';
 import {
   build311ComplaintText,
   computeSurchargePct,
@@ -54,6 +56,7 @@ export default function SnapScreen() {
   const { addReport } = useReports();
 
   const [receiptUri, setReceiptUri] = useState<string | undefined>(undefined);
+  const [ocrScanning, setOcrScanning] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState('');
   const [address, setAddress] = useState('');
@@ -104,6 +107,76 @@ export default function SnapScreen() {
     [computedPct, cardType, chargedOnTax]
   );
 
+  const processReceiptAsset = async (asset: ImagePicker.ImagePickerAsset) => {
+    setReceiptUri(asset.uri);
+    setOcrScanning(true);
+    setOcrStatus(
+      'Scanning receipt for business name, address, subtotal & card fee...'
+    );
+    try {
+      const parsed = await analyzeReceiptImage({
+        uri: asset.uri,
+        base64: asset.base64,
+      });
+
+      const filledFields: string[] = [];
+
+      if (parsed.businessName) {
+        setBusinessName(parsed.businessName);
+        filledFields.push(parsed.businessName);
+      }
+      if (parsed.address) {
+        setAddress(parsed.address);
+      }
+      if (parsed.neighborhood) {
+        setNeighborhood(parsed.neighborhood);
+      }
+      if (parsed.borough) {
+        setBorough(parsed.borough);
+      }
+      if (parsed.category) {
+        setCategory(parsed.category);
+      }
+      if (parsed.matchedLocation) {
+        setGeoCoords({
+          lat: parsed.matchedLocation.latitude,
+          lng: parsed.matchedLocation.longitude,
+        });
+      }
+      if (parsed.subtotal !== undefined && parsed.subtotal > 0) {
+        setSubtotalText(parsed.subtotal.toFixed(2));
+        filledFields.push(`Subtotal $${parsed.subtotal.toFixed(2)}`);
+      }
+      if (parsed.feeAmount !== undefined && parsed.feeAmount >= 0) {
+        setFeeAmountText(parsed.feeAmount.toFixed(2));
+        filledFields.push(`Card Fee $${parsed.feeAmount.toFixed(2)}`);
+      } else if (parsed.surchargePct !== undefined && parsed.surchargePct > 0) {
+        setManualPct(parsed.surchargePct);
+        filledFields.push(`${parsed.surchargePct.toFixed(1)}% Fee`);
+      }
+      if (parsed.chargedOnTax !== undefined) {
+        setChargedOnTax(parsed.chargedOnTax);
+      }
+      if (parsed.feeLabel && !notes.trim()) {
+        setNotes(`Printed as "${parsed.feeLabel}" on receipt`);
+      }
+
+      if (filledFields.length > 0) {
+        setOcrStatus(`Auto-filled from receipt: ${filledFields.join(' • ')}`);
+      } else {
+        setOcrStatus(
+          'Receipt attached — please review or enter any blurry fields below.'
+        );
+      }
+    } catch {
+      setOcrStatus(
+        'Receipt attached — please review or enter the fields below.'
+      );
+    } finally {
+      setOcrScanning(false);
+    }
+  };
+
   const pickFromCamera = async () => {
     setErrorMsg(null);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -113,14 +186,12 @@ export default function SnapScreen() {
     }
     const res = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
+      quality: 0.85,
+      allowsEditing: false,
+      base64: true,
     });
     if (!res.canceled && res.assets[0]) {
-      setReceiptUri(res.assets[0].uri);
-      setOcrStatus(
-        'Receipt photo attached — confirm the subtotal & fee amounts below.'
-      );
+      await processReceiptAsset(res.assets[0]);
     }
   };
 
@@ -133,14 +204,12 @@ export default function SnapScreen() {
     }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: true,
+      quality: 0.85,
+      allowsEditing: false,
+      base64: true,
     });
     if (!res.canceled && res.assets[0]) {
-      setReceiptUri(res.assets[0].uri);
-      setOcrStatus(
-        'Receipt photo attached — confirm the subtotal & fee amounts below.'
-      );
+      await processReceiptAsset(res.assets[0]);
     }
   };
 
@@ -357,7 +426,11 @@ export default function SnapScreen() {
 
             {ocrStatus && (
               <View style={styles.ocrBanner}>
-                <Ionicons name="checkmark-circle" size={16} color="#047857" />
+                {ocrScanning ? (
+                  <ActivityIndicator size="small" color="#047857" />
+                ) : (
+                  <Ionicons name="checkmark-circle" size={16} color="#047857" />
+                )}
                 <Text style={styles.ocrBannerText}>{ocrStatus}</Text>
               </View>
             )}

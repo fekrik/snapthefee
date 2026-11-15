@@ -1,6 +1,6 @@
 {
-  "appId": "com.snapthefee.nyc",
-  "appName": "SnapTheFee",
+  "appId": "com.fekrikassem.snapthefeenyc",
+  "appName": "SnapTheFee NYC Surcharge",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
